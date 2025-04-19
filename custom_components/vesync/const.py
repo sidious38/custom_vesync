@@ -42,6 +42,7 @@ DEV_TYPE_TO_HA = {
     "ESW01-EU": "outlet",
     "ESW15-USA": "outlet",
     "wifi-switch-1.3": "outlet",
+    "WHOGPLUG": "outlet",
     "ESWL01": "switch",
     "ESWL03": "switch",
     "ESD16": "walldimmer",
