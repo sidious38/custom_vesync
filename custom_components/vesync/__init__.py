@@ -45,7 +45,7 @@ CONFIG_SCHEMA = cv.removed(DOMAIN, raise_if_present=False)
 
 
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
-    """Set up Vesync as config entry."""
+    """Set up VeSync as config entry."""
     username = config_entry.data[CONF_USERNAME]
     password = config_entry.data[CONF_PASSWORD]
 
@@ -59,12 +59,9 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
         _LOGGER.error("Unable to login to the VeSync server")
         return False
 
-    forward_setup = hass.config_entries.async_forward_entry_setup
-
-    hass.data[DOMAIN] = {config_entry.entry_id: {}}
+    hass.data.setdefault(DOMAIN, {})[config_entry.entry_id] = {}
     hass.data[DOMAIN][config_entry.entry_id][VS_MANAGER] = manager
 
-    # Create a DataUpdateCoordinator for the manager
     async def async_update_data():
         """Fetch data from API endpoint."""
         try:
@@ -80,10 +77,8 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
         update_interval=timedelta(seconds=30),
     )
 
-    # Fetch initial data so we have data when entities subscribe
     await coordinator.async_refresh()
 
-    # Store the coordinator instance in hass.data
     hass.data[DOMAIN][config_entry.entry_id]["coordinator"] = coordinator
 
     device_dict = await async_process_devices(hass, manager)
@@ -92,29 +87,30 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
         hass.data[DOMAIN][config_entry.entry_id][vs_p] = []
         if device_dict[vs_p]:
             hass.data[DOMAIN][config_entry.entry_id][vs_p].extend(device_dict[vs_p])
-            hass.async_create_task(forward_setup(config_entry, p))
+            await hass.config_entries.async_forward_entry_setups(config_entry, [p])
 
     async def async_new_device_discovery(service: ServiceCall) -> None:
         """Discover if new devices should be added."""
         manager = hass.data[DOMAIN][config_entry.entry_id][VS_MANAGER]
         dev_dict = await async_process_devices(hass, manager)
 
-        def _add_new_devices(platform: str) -> None:
+        async def _add_new_devices(platform: Platform) -> None:
             """Add new devices to hass."""
-            old_devices = hass.data[DOMAIN][config_entry.entry_id][PLATFORMS[platform]]
-            if new_devices := list(
-                set(dev_dict.get(VS_SWITCHES, [])).difference(old_devices)
-            ):
+            platform_key = PLATFORMS[platform]
+            old_devices = hass.data[DOMAIN][config_entry.entry_id][platform_key]
+            new_devices = list(set(dev_dict.get(platform_key, [])).difference(old_devices))
+
+            if new_devices:
                 old_devices.extend(new_devices)
                 if old_devices:
                     async_dispatcher_send(
-                        hass, VS_DISCOVERY.format(PLATFORMS[platform]), new_devices
+                        hass, VS_DISCOVERY.format(platform_key), new_devices
                     )
                 else:
-                    hass.async_create_task(forward_setup(config_entry, platform))
+                    await hass.config_entries.async_forward_entry_setups(config_entry, [platform])
 
-        for k in PLATFORMS:
-            _add_new_devices(k)
+        for platform in PLATFORMS:
+            await _add_new_devices(platform)
 
     hass.services.async_register(
         DOMAIN, SERVICE_UPDATE_DEVS, async_new_device_discovery
